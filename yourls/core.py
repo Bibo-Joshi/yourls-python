@@ -1,6 +1,9 @@
 # coding: utf-8
 from __future__ import absolute_import, division, print_function
 
+import hashlib
+import time
+
 import requests
 
 from .data import (
@@ -8,21 +11,70 @@ from .data import (
 
 
 class YOURLSClientBase(object):
-    """Base class for YOURLS client that provides initialiser and api request method."""
-    def __init__(self, apiurl, username=None, password=None, signature=None):
-        self.apiurl = apiurl
-        if username and password and signature is None:
-            self._data = dict(username=username, password=password)
-        elif username is None and password is None and signature:
-            self._data = dict(signature=signature)
-        elif username is None and password is None and signature is None:
-            self._data = dict()
-        else:
+    """
+    Base class for YOURLS client that provides initializer and api request method.
+
+    Note:
+        :attr:`username` and :attr:`password` are mutually exclusive to :attr:`signature`.
+
+    Args:
+        apiurl (:obj:`str`): The URL of your YOURLS instance. You may skip the ``yourls-api.php``
+            extension.
+        username (:obj:`str`, optional): Your username.
+        password (:obj:`str`, optional): Your password.
+        signature (:obj:`str`, optional): Your signature.
+        nonce_life (:obj:`bool` | :obj:`int`, optional): Whether to use timed limited signatures.
+            Passing :obj:`True` will refresh the token after 12 hours. To use another value, pass
+            the expiration time in seconds. Can only be used, if :attr:`signature` is passed.
+    """
+    def __init__(self, apiurl, username=None, password=None, signature=None, nonce_life=None):
+        if (not bool(username and password) ^ bool(signature)
+                or not bool(username and password) ^ bool(nonce_life)):
             raise TypeError(
                 'If server requires authentication, either pass username and '
-                'password or signature. Otherwise, leave set to default (None)')
+                'password or signature. Otherwise, leave set to default (None). nonce_life may '
+                'only be passed, if signature is passed.')
 
-        self._data['format'] = 'json'
+        self.apiurl = apiurl
+        self.username = username
+        self.password = password
+        self.signature = signature
+        self.nonce_life = nonce_life
+        self._nonce_cache_time = None
+        self._cached_signature = None
+
+        if self.nonce_life is True:
+            self.nonce_life = 43200
+        if 'yourls-api.php' not in self.apiurl:
+            self.apiurl = self.apiurl.rstrip('/') + '/yourls-api.php'
+
+    def timed_signature(self):
+        """
+        Current timestamp and MD5-encoded signature.
+
+        Returns:
+            Tuple(:obj:`int`, :obj:`str`)
+        """
+        timestamp = int(time.time())
+        if not self._cached_signature or timestamp - self._nonce_cache_time > self.nonce_life:
+            self._cached_signature = hashlib.md5(
+                '{}{}'.format(timestamp, self.signature).encode('utf8')).hexdigest()
+            self._nonce_cache_time = timestamp
+        return self._nonce_cache_time, self._cached_signature
+
+    @property
+    def _data(self):
+        data = {'format': 'json'}
+
+        if self.username:
+            data.update({'username': self.username, 'password': self.password})
+        elif self.signature and not self.nonce_life:
+            data.update({'signature': self.signature})
+        elif self.signature and self.nonce_life:
+            timestamp, signature = self.timed_signature()
+            data.update({'signature': signature, 'timestamp': timestamp})
+
+        return data
 
     def _api_request(self, params):
         params = params.copy()
