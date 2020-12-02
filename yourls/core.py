@@ -29,7 +29,7 @@ class YOURLSClientBase(object):
     """
     def __init__(self, apiurl, username=None, password=None, signature=None, nonce_life=None):
         if (not bool(username and password) ^ bool(signature)
-                or not bool(username and password) ^ bool(nonce_life)):
+                or (nonce_life and not signature)):
             raise TypeError(
                 'If server requires authentication, either pass username and '
                 'password or signature. Otherwise, leave set to default (None). nonce_life may '
@@ -46,7 +46,10 @@ class YOURLSClientBase(object):
         if self.nonce_life is True:
             self.nonce_life = 43200
         if 'yourls-api.php' not in self.apiurl:
+            self.url = self.apiurl.rstrip('/')
             self.apiurl = self.apiurl.rstrip('/') + '/yourls-api.php'
+        else:
+            self.url = self.apiurl[:-15]
 
     def timed_signature(self):
         """
@@ -206,12 +209,10 @@ class YOURLSAPIMixin(object):
         stats = DBStats(total_clicks=int(jsondata['stats']['total_clicks']),
                         total_links=int(jsondata['stats']['total_links']))
 
-        links = []
-
         if 'links' in jsondata:
-            for i in range(1, limit + 1):
-                key = 'link_{}'.format(i)
-                links.append(_json_to_shortened_url(jsondata['links'][key]))
+            links = [_json_to_shortened_url(jsondata['links'][key]) for key in jsondata['links']]
+        else:
+            links = []
 
         return links, stats
 

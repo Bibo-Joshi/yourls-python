@@ -21,6 +21,10 @@ class ShortenedURL(ReprHelperMixin, object):
 
        Short URL keyword, e.g. ``abcdef`` for ``http://example.com/abcdef``.
 
+    .. attribute:: shorturl
+
+       Short URL , e.g. ``http://example.com/abcdef``.
+
     .. attribute:: url
 
        Long URL that was shortened.
@@ -186,6 +190,8 @@ def _json_to_shortened_url(urldata, shorturl=None):
         raise YOURLSAPIError("Expected 'date' or 'timestamp' key in JSON response.")
 
     keyword = urldata.get('keyword', None)
+    if not keyword:
+        keyword = shorturl.rpartition('/')[-1]
 
     clicks = int(urldata.get('clicks', '0'))
 
